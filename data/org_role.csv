@@ -1,0 +1,7 @@
+org_role_id,org_id,org_name,org_role_name
+1,1,headquarters,manager
+2,2,south,manager
+3,2,south,leader
+4,2,south,employee
+5,3,north,leader
+6,4,special,employee
