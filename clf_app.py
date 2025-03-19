@@ -21,8 +21,16 @@ def predict():
             data = [data]
         # 將 JSON 轉換成 DataFrame
         # 注意：此 DataFrame 必須已經是數值化且欄位順序與訓練時一致
+        expected_columns = ['user_action', 'user_ip', 'user_account', 'IP', 'user_id',
+                    'role_id', 'action', 'hour', 'minute', 'second', 'dayofweek', 'day_type']
+
         df = pd.DataFrame(data)
+
+        # **確保 DataFrame 欄位順序與模型一致**
+        df = df.reindex(columns=expected_columns)
+
         
+
         # 使用裸分類器進行預測（此處不會自動進行前處理）
         predictions = clf.predict(df)
         anomaly_scores = clf.predict_proba(df)[:, 1] * 100  # 將異常概率轉為百分比
@@ -31,9 +39,14 @@ def predict():
         results = []
         for i in range(len(df)):
             results.append({
+                "user_id": int(df.loc[i, "user_id"]),  
+                "user_account": int(df.loc[i, "user_account"]),  
                 "is_anomaly": int(predictions[i]),
                 "anomaly_score": float(anomaly_scores[i])
             })
+        print("Received Features:", list(df.columns))
+        print("Expected Features:", expected_columns)
+
         return jsonify(results)
     
     except Exception as e:
