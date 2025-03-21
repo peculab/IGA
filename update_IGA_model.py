@@ -5,13 +5,17 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.ensemble import IsolationForest
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report
-
+import os
 import pandas as pd
+import joblib
 
 import datetime
 
-with open("/home/poc/main/IGA/cron_log.txt", "a") as f:
+with open("/home/poc/main/IGA/logs/cron_log.txt", "a") as f:
     f.write(f"Script ran at {datetime.datetime.now()}\n")
+
+
+
 
 
 # Define file paths
@@ -153,10 +157,10 @@ from sklearn.pipeline import make_pipeline
 from xgboost import XGBClassifier
 from sklearn.model_selection import GridSearchCV
 
-# model = Pipeline(steps=[
-#     ('preprocessor', preprocessor),
-#     ('classifier', XGBClassifier())
-# ])
+model = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('classifier', XGBClassifier())
+])
 param_grid = {
     'classifier__max_depth': [3, 6, 10],
     'classifier__min_child_weight': [1, 5, 10],
@@ -180,27 +184,78 @@ optimal_params = {
     'objective': 'binary:logistic'  # Assuming a binary classification problem
 }
 
-model = Pipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('classifier', XGBClassifier(**optimal_params, n_jobs=-1))
-])
+# model = Pipeline(steps=[
+#     ('preprocessor', preprocessor),
+#     ('classifier', XGBClassifier(**optimal_params, n_jobs=-1))
+# ])
+MODEL_PATH = '/home/poc/main/IGA/models/clf_model_update.pkl'
 
+# 如果模型存在，就讀進來並繼續訓練；否則建立新模型
+if os.path.exists(MODEL_PATH):
+    print("Incremental training....")
+    clf = joblib.load(MODEL_PATH)
+    clf.fit(X_train, Y_train, xgb_model=clf.get_booster())  # <-- 增量訓練
+else:
+    print("First time training....")
+    clf = XGBClassifier(**optimal_params, n_jobs=-1)
+    clf.fit(X_train, Y_train)
 
-clf = XGBClassifier(**optimal_params, n_jobs=-1)
-clf.fit(X_train, Y_train)
+# clf = XGBClassifier(**optimal_params, n_jobs=-1)
+# clf.fit(X_train, Y_train)
 Y_pred = clf.predict(X_test)
 
-import joblib
 joblib.dump(clf, '/home/poc/main/IGA/models/clf_model_update.pkl')
 print("`.pkl` 存檔測試成功！")
 
 
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-# import plotly.figure_factory as ff
+import plotly.figure_factory as ff
 from sklearn.metrics import classification_report
 # 計算正確率
 accuracy = accuracy_score(Y_test, Y_pred)
-#print(f"SVC 的正確率: {accuracy*100:.2f}%")
 print(f"RandomForest 的正確率: {accuracy*100:.2f}%")
 print("模型已更新！")
+cm = confusion_matrix(Y_test, Y_pred)
+cm_labels = [0, 1]
+
+# Create the confusion matrix heatmap
+fig = ff.create_annotated_heatmap(z=cm, x=cm_labels, y=cm_labels, colorscale='Blues')
+
+# Update layout for better readability
+fig.update_layout(
+    title='Confusion Matrix',
+    xaxis=dict(title='Predicted Label'),
+    yaxis=dict(title='True Label')
+)
+
+probabilities = clf.predict_proba(X_test)
+
+import numpy as np
+indices_FN = np.where((Y_pred == 0) & (Y_test == 1))[0]
+indices_TN = np.where((Y_pred == 1) & (Y_test == 1))[0]
+
+# Extract the corresponding samples
+y_true_selected_FN = X_test.iloc[indices_FN]
+y_true_selected_TN = X_test.iloc[indices_TN]
+
+FN = auth_log_df.loc[y_true_selected_FN.index]
+TN = auth_log_df.loc[y_true_selected_TN.index]
+
+import plotly.express as px
+
+# 分析密碼錯誤的登入失敗
+password_errors = FN[FN['description'] == 'wrong password']
+
+# 查看不同IP地址的登入嘗試次數
+ip_attempts = FN['IP'].value_counts().reset_index()
+ip_attempts.columns = ['IP', 'Counts']
+
+# 查看不同角色的登入嘗試次數
+role_attempts = FN['role_id'].value_counts().reset_index()
+role_attempts.columns = ['Role_ID', 'Counts']
+
+# 登入嘗試的時間分佈
+FN['Hour'] = pd.to_datetime(FN['timestamp']).dt.hour
+time_analysis = FN['Hour'].value_counts().sort_index().reset_index()
+time_analysis.columns = ['Hour', 'Counts']
